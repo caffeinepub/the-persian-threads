@@ -28,6 +28,9 @@ const NAV_LINKS = [
   { label: "Contact", href: "#contact", filter: null },
 ];
 
+const BRAND_IMAGE =
+  "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png";
+
 function formatPrice(price: bigint): string {
   return `₹${Number(price).toLocaleString("en-IN")}`;
 }
@@ -204,8 +207,7 @@ function StoreFront() {
         <div
           className="absolute inset-0 bg-center bg-cover"
           style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=1600')",
+            backgroundImage: `url('${BRAND_IMAGE}')`,
           }}
         />
         <div className="absolute inset-0 bg-black/45" />
@@ -310,10 +312,7 @@ function StoreFront() {
                 >
                   <div className="relative overflow-hidden aspect-[4/5]">
                     <img
-                      src={
-                        product.image ||
-                        "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=600"
-                      }
+                      src={product.image || BRAND_IMAGE}
                       alt={product.name}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
@@ -377,8 +376,7 @@ function StoreFront() {
         <div
           className="absolute inset-0 bg-center bg-cover"
           style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=1600')",
+            backgroundImage: `url('${BRAND_IMAGE}')`,
           }}
         />
         <div className="absolute inset-0 bg-black/55" />
@@ -662,10 +660,10 @@ function StoreFront() {
                 </li>
                 <li>
                   <a
-                    href="tel:+911234567890"
+                    href="tel:+919906099884"
                     className="hover:text-white transition-colors"
                   >
-                    +91 123 456 7890
+                    +91 9906099884
                   </a>
                 </li>
               </ul>
@@ -676,17 +674,6 @@ function StoreFront() {
             <p>
               © {new Date().getFullYear()} The Persian Threads 🧵 · Crafted with
               Heritage &amp; Luxury
-            </p>
-            <p>
-              Built with ❤️ using{" "}
-              <a
-                href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-white/70 transition-colors underline underline-offset-2"
-              >
-                caffeine.ai
-              </a>
             </p>
           </div>
         </div>

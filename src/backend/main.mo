@@ -4,9 +4,9 @@ import Array "mo:core/Array";
 import Runtime "mo:core/Runtime";
 import Order "mo:core/Order";
 import Text "mo:core/Text";
-import Migration "migration";
 
-(with migration = Migration.run)
+
+
 actor {
   type Category = {
     #Women;
