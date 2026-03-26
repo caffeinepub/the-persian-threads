@@ -21,29 +21,159 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
   ExternalLink,
-  Loader2,
+  Image,
   LogOut,
   MessageSquare,
   Package,
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Category } from "./backend";
-import {
-  type Product,
-  useAddProduct,
-  useContactInfo,
-  useDeleteProduct,
-  useProducts,
-  useSaveContactInfo,
-  useUpdateProduct,
-} from "./hooks/useQueries";
 
 const ADMIN_PASSWORD = "admin123";
 const SESSION_KEY = "persian_threads_admin_auth";
+const PRODUCTS_KEY = "persian_threads_products";
+const CONTACT_KEY = "persian_threads_contact";
+
+interface Product {
+  id: bigint;
+  name: string;
+  description: string;
+  category: Category;
+  price: bigint;
+  image: string;
+}
+
+interface ContactInfo {
+  email: string;
+  address: string;
+  phone: string;
+}
+
+const DEFAULT_PRODUCTS: Product[] = [
+  {
+    id: 1n,
+    name: "Embroidered Pheran",
+    price: 3499n,
+    category: Category.Women,
+    description:
+      "Hand-embroidered traditional Kashmiri pheran with intricate floral motifs",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+  {
+    id: 2n,
+    name: "Pashmina Shawl",
+    price: 5999n,
+    category: Category.Shawls,
+    description:
+      "Pure pashmina, hand-loomed in Kashmir with centuries-old weaving traditions",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+  {
+    id: 3n,
+    name: "Floral Kurta",
+    price: 2499n,
+    category: Category.Women,
+    description:
+      "Delicate floral embroidery on silk-blend fabric with Persian-inspired patterns",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+  {
+    id: 4n,
+    name: "Silk Pathani",
+    price: 4299n,
+    category: Category.Men,
+    description:
+      "Luxurious silk pathani with subtle geometric weave and mandarin collar",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+  {
+    id: 5n,
+    name: "Kani Shawl",
+    price: 8999n,
+    category: Category.Shawls,
+    description:
+      "Rare kani weave shawl with elaborate paisley patterns, takes months to craft",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+  {
+    id: 6n,
+    name: "Embroidered Sherwani",
+    price: 12499n,
+    category: Category.Men,
+    description:
+      "Royal sherwani with gold zari embroidery, perfect for celebrations",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
+  },
+];
+
+const DEFAULT_CONTACT: ContactInfo = {
+  phone: "9906099884",
+  email: "persianThreads@gmail.com",
+  address: "Dal Lake Road, Srinagar, Kashmir",
+};
+
+function serializeProducts(products: Product[]): string {
+  return JSON.stringify(
+    products.map((p) => ({
+      ...p,
+      id: p.id.toString(),
+      price: p.price.toString(),
+    })),
+  );
+}
+
+function deserializeProducts(json: string): Product[] {
+  try {
+    const arr = JSON.parse(json);
+    return arr.map((p: Record<string, unknown>) => ({
+      ...p,
+      id: BigInt(p.id as string),
+      price: BigInt(p.price as string),
+    }));
+  } catch {
+    return DEFAULT_PRODUCTS;
+  }
+}
+
+function loadProducts(): Product[] {
+  try {
+    const raw = localStorage.getItem(PRODUCTS_KEY);
+    if (!raw) return DEFAULT_PRODUCTS;
+    const parsed = deserializeProducts(raw);
+    return parsed.length > 0 ? parsed : DEFAULT_PRODUCTS;
+  } catch {
+    return DEFAULT_PRODUCTS;
+  }
+}
+
+function persistProducts(products: Product[]): void {
+  localStorage.setItem(PRODUCTS_KEY, serializeProducts(products));
+}
+
+function loadContact(): ContactInfo {
+  try {
+    const raw = localStorage.getItem(CONTACT_KEY);
+    if (!raw) return DEFAULT_CONTACT;
+    return JSON.parse(raw);
+  } catch {
+    return DEFAULT_CONTACT;
+  }
+}
+
+function persistContact(contact: ContactInfo): void {
+  localStorage.setItem(CONTACT_KEY, JSON.stringify(contact));
+}
 
 function formatPrice(price: bigint): string {
   return `₹${Number(price).toLocaleString("en-IN")}`;
@@ -155,19 +285,16 @@ function ProductFormDialog({
   onOpenChange,
   initialData,
   onSave,
-  isPending,
   title,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initialData: ProductFormData;
   onSave: (data: ProductFormData) => void;
-  isPending: boolean;
   title: string;
 }) {
   const [form, setForm] = useState<ProductFormData>(initialData);
 
-  // Reset when dialog opens with new data
   const handleOpenChange = (v: boolean) => {
     if (v) setForm(initialData);
     onOpenChange(v);
@@ -185,14 +312,10 @@ function ProductFormDialog({
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label
-              htmlFor="pf-name"
-              className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-            >
+            <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
               Product Name
             </Label>
             <Input
-              id="pf-name"
               value={form.name}
               onChange={(e) => field("name", e.target.value)}
               placeholder="e.g. Embroidered Pheran"
@@ -200,76 +323,61 @@ function ProductFormDialog({
               data-ocid="admin.input"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label
-                htmlFor="pf-price"
-                className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-              >
-                Price (₹)
-              </Label>
-              <Input
-                id="pf-price"
-                type="number"
-                min="0"
-                value={form.price}
-                onChange={(e) => field("price", e.target.value)}
-                placeholder="3499"
-                className="mt-1.5 rounded-xl"
-                data-ocid="admin.input"
-              />
-            </div>
-            <div>
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
-                Category
-              </Label>
-              <Select
-                value={form.category}
-                onValueChange={(v) => field("category", v as Category)}
-              >
-                <SelectTrigger
-                  className="mt-1.5 rounded-xl"
-                  data-ocid="admin.select"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={Category.Women}>Women</SelectItem>
-                  <SelectItem value={Category.Men}>Men</SelectItem>
-                  <SelectItem value={Category.Shawls}>Shawls</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div>
+            <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+              Price (₹)
+            </Label>
+            <Input
+              type="number"
+              value={form.price}
+              onChange={(e) => field("price", e.target.value)}
+              placeholder="e.g. 3499"
+              className="mt-1.5 rounded-xl"
+              data-ocid="admin.input"
+            />
           </div>
           <div>
-            <Label
-              htmlFor="pf-desc"
-              className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
+            <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+              Category
+            </Label>
+            <Select
+              value={form.category}
+              onValueChange={(v) => field("category", v as Category)}
             >
+              <SelectTrigger
+                className="mt-1.5 rounded-xl"
+                data-ocid="admin.select"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={Category.Women}>Women</SelectItem>
+                <SelectItem value={Category.Men}>Men</SelectItem>
+                <SelectItem value={Category.Shawls}>Shawls</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
               Description
             </Label>
             <Textarea
-              id="pf-desc"
               value={form.description}
               onChange={(e) => field("description", e.target.value)}
-              placeholder="Describe this product…"
+              placeholder="Brief product description…"
               rows={3}
               className="mt-1.5 rounded-xl resize-none"
               data-ocid="admin.textarea"
             />
           </div>
           <div>
-            <Label
-              htmlFor="pf-image"
-              className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-            >
+            <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
               Image URL
             </Label>
             <Input
-              id="pf-image"
               value={form.image}
               onChange={(e) => field("image", e.target.value)}
-              placeholder="https://…"
+              placeholder="https://… or /assets/…"
               className="mt-1.5 rounded-xl"
               data-ocid="admin.input"
             />
@@ -296,14 +404,11 @@ function ProductFormDialog({
           </Button>
           <Button
             onClick={() => onSave(form)}
-            disabled={isPending || !form.name || !form.price}
+            disabled={!form.name || !form.price}
             className="bg-primary hover:bg-primary/80 text-primary-foreground rounded-full"
             data-ocid="admin.save_button"
           >
-            {isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : null}
-            {isPending ? "Saving…" : "Save Product"}
+            Save Product
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -317,13 +422,11 @@ function DeleteDialog({
   onOpenChange,
   productName,
   onConfirm,
-  isPending,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   productName: string;
   onConfirm: () => void;
-  isPending: boolean;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -347,14 +450,10 @@ function DeleteDialog({
           <Button
             variant="destructive"
             onClick={onConfirm}
-            disabled={isPending}
             className="rounded-full"
             data-ocid="admin.confirm_button"
           >
-            {isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : null}
-            {isPending ? "Deleting…" : "Delete"}
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -362,97 +461,251 @@ function DeleteDialog({
   );
 }
 
+// ── Category Images Section ─────────────────────────────────────────────────
+const CATEGORY_KEYS: { label: string; key: string }[] = [
+  { label: "Women", key: "Women" },
+  { label: "Men", key: "Men" },
+  { label: "Shawls", key: "Shawls" },
+];
+
+function CategoryImagesSection() {
+  const [images, setImages] = useState<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {};
+    for (const { key } of CATEGORY_KEYS) {
+      try {
+        const raw = localStorage.getItem(`persian_category_images_${key}`);
+        result[key] = raw ? JSON.parse(raw) : [];
+      } catch {
+        result[key] = [];
+      }
+    }
+    return result;
+  });
+
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  function persistCategoryImages(key: string, imgs: string[]) {
+    localStorage.setItem(
+      `persian_category_images_${key}`,
+      JSON.stringify(imgs),
+    );
+    // Notify other tabs/components
+    window.dispatchEvent(new Event("storage"));
+  }
+
+  function handleUpload(key: string, files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const readers = Array.from(files).map(
+      (file) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        }),
+    );
+    Promise.all(readers).then((newImgs) => {
+      setImages((prev) => {
+        const updated = [...(prev[key] || []), ...newImgs];
+        persistCategoryImages(key, updated);
+        return { ...prev, [key]: updated };
+      });
+      toast.success(`${newImgs.length} image(s) uploaded for ${key}!`);
+    });
+  }
+
+  function handleRemove(key: string, idx: number) {
+    setImages((prev) => {
+      const updated = prev[key].filter((_, i) => i !== idx);
+      persistCategoryImages(key, updated);
+      return { ...prev, [key]: updated };
+    });
+    toast.success("Image removed.");
+  }
+
+  function handleClearAll(key: string) {
+    setImages((prev) => {
+      persistCategoryImages(key, []);
+      return { ...prev, [key]: [] };
+    });
+    toast.success(`All images cleared for ${key}.`);
+  }
+
+  return (
+    <section data-ocid="admin.panel">
+      <div className="flex items-center gap-3 mb-6">
+        <Image size={20} className="text-primary" />
+        <h2 className="font-serif text-2xl font-bold text-foreground">
+          Category Images
+        </h2>
+      </div>
+      <p className="text-muted-foreground text-sm mb-6">
+        Upload slideshow images for each category. These appear above the
+        product grid when a category filter is selected.
+      </p>
+
+      <div className="space-y-8">
+        {CATEGORY_KEYS.map(({ label, key }) => (
+          <div
+            key={key}
+            className="bg-white rounded-2xl border border-border p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-serif text-lg font-semibold text-foreground">
+                {label} Images
+              </h3>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="rounded-full">
+                  {(images[key] || []).length} images
+                </Badge>
+                {(images[key] || []).length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleClearAll(key)}
+                    className="rounded-full text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                    data-ocid="admin.delete_button"
+                  >
+                    <Trash2 size={12} className="mr-1" /> Clear All
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Thumbnails */}
+            {(images[key] || []).length > 0 && (
+              <div className="flex flex-wrap gap-3 mb-4">
+                {(images[key] || []).map((src, idx) => (
+                  <div
+                    key={src.slice(0, 30)}
+                    className="relative group"
+                    data-ocid={`admin.item.${idx + 1}`}
+                  >
+                    <img
+                      src={src}
+                      alt={`${label} ${idx + 1}`}
+                      className="w-20 h-20 object-cover rounded-xl border border-border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(key, idx)}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                      aria-label="Remove image"
+                      data-ocid={`admin.delete_button.${idx + 1}`}
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(images[key] || []).length === 0 && (
+              <div className="flex items-center justify-center h-20 bg-secondary rounded-xl mb-4 border border-dashed border-border">
+                <p className="text-muted-foreground text-sm">
+                  No images yet. Upload some below.
+                </p>
+              </div>
+            )}
+
+            {/* Upload */}
+            <div className="flex items-center gap-3">
+              <input
+                ref={(el) => {
+                  fileInputRefs.current[key] = el;
+                }}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleUpload(key, e.target.files)}
+                data-ocid="admin.upload_button"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRefs.current[key]?.click()}
+                className="rounded-full text-xs"
+                data-ocid="admin.upload_button"
+              >
+                <Plus size={14} className="mr-1.5" /> Upload Images
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                JPG, PNG, WEBP · Multiple files supported
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── Main Admin Panel ────────────────────────────────────────────────────────
 function AdminDashboard({ onLogout }: { onLogout: () => void }) {
-  const { data: products = [], isLoading: productsLoading } = useProducts();
-  const { data: contactInfo } = useContactInfo();
+  const [products, setProducts] = useState<Product[]>(() => loadProducts());
+  const [contactInfo, setContactInfo] = useState<ContactInfo>(() =>
+    loadContact(),
+  );
 
-  const addProduct = useAddProduct();
-  const updateProduct = useUpdateProduct();
-  const deleteProduct = useDeleteProduct();
-  const saveContactInfo = useSaveContactInfo();
-
-  // Product dialogs
   const [addOpen, setAddOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
 
-  // Contact form state
-  const [contact, setContact] = useState({ phone: "", email: "", address: "" });
-  const [contactLoaded, setContactLoaded] = useState(false);
-
-  // Sync contact info when loaded
-  if (contactInfo && !contactLoaded) {
-    setContact({
-      phone: contactInfo.phone,
-      email: contactInfo.email,
-      address: contactInfo.address,
-    });
-    setContactLoaded(true);
+  function handleAddProduct(data: ProductFormData) {
+    const maxId = products.reduce((max, p) => (p.id > max ? p.id : max), 0n);
+    const newProduct: Product = {
+      id: maxId + 1n,
+      name: data.name,
+      price: BigInt(Math.round(Number(data.price))),
+      category: data.category,
+      description: data.description,
+      image: data.image,
+    };
+    const updated = [...products, newProduct];
+    persistProducts(updated);
+    setProducts(updated);
+    setAddOpen(false);
+    toast.success(`"${data.name}" added successfully!`);
   }
 
-  async function handleAddProduct(data: ProductFormData) {
-    try {
-      const product: Product = {
-        id: BigInt(Date.now()),
-        name: data.name,
-        price: BigInt(Math.round(Number(data.price))),
-        category: data.category,
-        description: data.description,
-        image: data.image,
-      };
-      await addProduct.mutateAsync(product);
-      setAddOpen(false);
-      toast.success(`"${data.name}" added successfully!`);
-    } catch {
-      toast.error("Failed to add product.");
-    }
-  }
-
-  async function handleUpdateProduct(data: ProductFormData) {
+  function handleUpdateProduct(data: ProductFormData) {
     if (!editProduct) return;
-    try {
-      const updated: Product = {
-        ...editProduct,
-        name: data.name,
-        price: BigInt(Math.round(Number(data.price))),
-        category: data.category,
-        description: data.description,
-        image: data.image,
-      };
-      await updateProduct.mutateAsync({
-        productId: editProduct.id,
-        product: updated,
-      });
-      setEditProduct(null);
-      toast.success(`"${data.name}" updated successfully!`);
-    } catch {
-      toast.error("Failed to update product.");
-    }
+    const updated = products.map((p) =>
+      p.id === editProduct.id
+        ? {
+            ...editProduct,
+            name: data.name,
+            price: BigInt(Math.round(Number(data.price))),
+            category: data.category,
+            description: data.description,
+            image: data.image,
+          }
+        : p,
+    );
+    persistProducts(updated);
+    setProducts(updated);
+    setEditProduct(null);
+    toast.success(`"${data.name}" updated successfully!`);
   }
 
-  async function handleDeleteProduct() {
+  function handleDeleteProduct() {
     if (!deleteTarget) return;
-    try {
-      await deleteProduct.mutateAsync(deleteTarget.id);
-      setDeleteTarget(null);
-      toast.success(`"${deleteTarget.name}" deleted.`);
-    } catch {
-      toast.error("Failed to delete product.");
-    }
+    const updated = products.filter((p) => p.id !== deleteTarget.id);
+    persistProducts(updated);
+    setProducts(updated);
+    toast.success(`"${deleteTarget.name}" deleted.`);
+    setDeleteTarget(null);
   }
 
-  async function handleSaveContact(e: React.FormEvent) {
+  function handleSaveContact(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      await saveContactInfo.mutateAsync(contact);
-      toast.success("Contact info saved!");
-    } catch {
-      toast.error("Failed to save contact info.");
-    }
+    persistContact(contactInfo);
+    toast.success("Contact info saved!");
   }
 
-  const whatsappPhone = contact.phone.replace(/\D/g, "");
+  const whatsappPhone = contactInfo.phone.replace(/\D/g, "");
   const whatsappUrl = `https://wa.me/${whatsappPhone}?text=Hello! I'm interested in your products.`;
 
   const editFormData: ProductFormData = editProduct
@@ -527,14 +780,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
             </Button>
           </div>
 
-          {productsLoading ? (
-            <div
-              className="flex items-center justify-center py-16"
-              data-ocid="admin.loading_state"
-            >
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : products.length === 0 ? (
+          {products.length === 0 ? (
             <div
               className="text-center py-16 bg-white rounded-2xl border border-dashed border-border"
               data-ocid="admin.empty_state"
@@ -552,64 +798,56 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
               {products.map((product, i) => (
                 <div
                   key={String(product.id)}
-                  className="bg-white rounded-xl border border-border p-4 flex items-center gap-4 group hover:border-primary/30 transition-colors"
+                  className="bg-white rounded-2xl border border-border p-4 flex items-center gap-4"
                   data-ocid={`admin.item.${i + 1}`}
                 >
-                  {/* Thumbnail */}
-                  <div className="w-16 h-16 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
-                    <img
-                      src={
-                        product.image ||
-                        "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=200"
-                      }
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src =
-                          "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=200";
-                      }}
-                    />
-                  </div>
-
-                  {/* Info */}
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    className="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-border"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src =
+                        "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png";
+                    }}
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-serif font-semibold text-foreground truncate">
                         {product.name}
                       </h3>
                       <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${categoryColor[product.category]}`}
+                        className={`text-[10px] tracking-widest uppercase px-2 py-0.5 rounded-full border font-medium ${
+                          categoryColor[product.category]
+                        }`}
                       >
                         {product.category}
                       </span>
                     </div>
-                    <p className="text-muted-foreground text-xs line-clamp-1">
+                    <p className="text-muted-foreground text-xs mt-0.5 truncate">
                       {product.description}
                     </p>
-                    <p className="text-primary font-serif font-bold mt-1">
+                    <p className="font-serif font-bold text-primary mt-1">
                       {formatPrice(product.price)}
                     </p>
                   </div>
-
-                  {/* Actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="rounded-full text-xs"
                       onClick={() => setEditProduct(product)}
+                      className="rounded-full text-xs"
                       data-ocid={`admin.edit_button.${i + 1}`}
                     >
-                      <Pencil size={13} className="mr-1" /> Edit
+                      <Pencil size={12} className="mr-1" /> Edit
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="rounded-full text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
                       onClick={() => setDeleteTarget(product)}
+                      className="rounded-full text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
                       data-ocid={`admin.delete_button.${i + 1}`}
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={12} />
                     </Button>
                   </div>
                 </div>
@@ -620,109 +858,84 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
         <Separator />
 
+        {/* ── Category Images Section ── */}
+        <CategoryImagesSection />
+
+        <Separator />
+
         {/* ── Contact Info Section ── */}
         <section data-ocid="admin.panel">
           <div className="flex items-center gap-3 mb-6">
             <MessageSquare size={20} className="text-primary" />
             <h2 className="font-serif text-2xl font-bold text-foreground">
-              Store Contact Info
+              Contact Info
             </h2>
           </div>
 
-          <div className="bg-white rounded-xl border border-border p-6 max-w-xl">
+          <div className="bg-white rounded-2xl border border-border p-6">
             <form onSubmit={handleSaveContact} className="space-y-4">
               <div>
-                <Label
-                  htmlFor="ci-phone"
-                  className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-                >
-                  Phone
+                <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+                  Phone Number
                 </Label>
                 <Input
-                  id="ci-phone"
-                  type="tel"
-                  value={contact.phone}
+                  value={contactInfo.phone}
                   onChange={(e) =>
-                    setContact((c) => ({ ...c, phone: e.target.value }))
+                    setContactInfo((c) => ({ ...c, phone: e.target.value }))
                   }
-                  placeholder="+91 123 456 7890"
+                  placeholder="e.g. 9906099884"
                   className="mt-1.5 rounded-xl"
                   data-ocid="admin.input"
                 />
               </div>
               <div>
-                <Label
-                  htmlFor="ci-email"
-                  className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-                >
+                <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
                   Email
                 </Label>
                 <Input
-                  id="ci-email"
                   type="email"
-                  value={contact.email}
+                  value={contactInfo.email}
                   onChange={(e) =>
-                    setContact((c) => ({ ...c, email: e.target.value }))
+                    setContactInfo((c) => ({ ...c, email: e.target.value }))
                   }
-                  placeholder="hello@persianthreads.in"
+                  placeholder="contact@example.com"
                   className="mt-1.5 rounded-xl"
                   data-ocid="admin.input"
                 />
               </div>
               <div>
-                <Label
-                  htmlFor="ci-address"
-                  className="text-xs uppercase tracking-widest text-muted-foreground font-medium"
-                >
+                <Label className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
                   Address
                 </Label>
-                <Textarea
-                  id="ci-address"
-                  value={contact.address}
+                <Input
+                  value={contactInfo.address}
                   onChange={(e) =>
-                    setContact((c) => ({ ...c, address: e.target.value }))
+                    setContactInfo((c) => ({ ...c, address: e.target.value }))
                   }
-                  placeholder="Lal Chowk, Srinagar, Kashmir 190001"
-                  rows={2}
-                  className="mt-1.5 rounded-xl resize-none"
-                  data-ocid="admin.textarea"
+                  placeholder="e.g. Dal Lake Road, Srinagar"
+                  className="mt-1.5 rounded-xl"
+                  data-ocid="admin.input"
                 />
               </div>
 
-              {/* WhatsApp preview */}
-              {whatsappPhone && (
-                <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-medium text-green-700 uppercase tracking-widest">
-                      WhatsApp Link Preview
-                    </p>
-                    <p className="text-xs text-green-600 mt-0.5 break-all">
-                      {whatsappUrl}
-                    </p>
-                  </div>
-                  <a
-                    href={whatsappUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-shrink-0 text-green-600 hover:text-green-700"
-                    data-ocid="admin.link"
-                  >
-                    <ExternalLink size={16} />
-                  </a>
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={saveContactInfo.isPending}
-                className="bg-primary hover:bg-primary/80 text-primary-foreground rounded-full text-sm tracking-widest uppercase font-medium"
-                data-ocid="admin.save_button"
-              >
-                {saveContactInfo.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : null}
-                {saveContactInfo.isPending ? "Saving…" : "Save Contact Info"}
-              </Button>
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  type="submit"
+                  className="bg-primary hover:bg-primary/80 text-primary-foreground rounded-full text-sm"
+                  data-ocid="admin.save_button"
+                >
+                  Save Contact Info
+                </Button>
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+                  data-ocid="admin.link"
+                >
+                  <ExternalLink size={12} /> Preview WhatsApp link
+                </a>
+              </div>
             </form>
           </div>
         </section>
@@ -734,29 +947,20 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         onOpenChange={setAddOpen}
         initialData={EMPTY_FORM}
         onSave={handleAddProduct}
-        isPending={addProduct.isPending}
         title="Add New Product"
       />
-
       <ProductFormDialog
         open={!!editProduct}
-        onOpenChange={(v) => {
-          if (!v) setEditProduct(null);
-        }}
+        onOpenChange={(v) => !v && setEditProduct(null)}
         initialData={editFormData}
         onSave={handleUpdateProduct}
-        isPending={updateProduct.isPending}
         title="Edit Product"
       />
-
       <DeleteDialog
         open={!!deleteTarget}
-        onOpenChange={(v) => {
-          if (!v) setDeleteTarget(null);
-        }}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
         productName={deleteTarget?.name ?? ""}
         onConfirm={handleDeleteProduct}
-        isPending={deleteProduct.isPending}
       />
     </div>
   );

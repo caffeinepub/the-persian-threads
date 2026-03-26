@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Category } from "../backend";
-import { useActor } from "./useActor";
 
 export interface Product {
   id: bigint;
@@ -17,7 +16,10 @@ export interface ContactInfo {
   phone: string;
 }
 
-const FALLBACK_PRODUCTS: Product[] = [
+const PRODUCTS_KEY = "persian_threads_products";
+const CONTACT_KEY = "persian_threads_contact";
+
+const DEFAULT_PRODUCTS: Product[] = [
   {
     id: 1n,
     name: "Embroidered Pheran",
@@ -25,7 +27,8 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Women,
     description:
       "Hand-embroidered traditional Kashmiri pheran with intricate floral motifs",
-    image: "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
   {
     id: 2n,
@@ -34,7 +37,8 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Shawls,
     description:
       "Pure pashmina, hand-loomed in Kashmir with centuries-old weaving traditions",
-    image: "https://images.unsplash.com/photo-1617137984095-74e4e5e3613f?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
   {
     id: 3n,
@@ -43,7 +47,8 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Women,
     description:
       "Delicate floral embroidery on silk-blend fabric with Persian-inspired patterns",
-    image: "https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
   {
     id: 4n,
@@ -52,7 +57,8 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Men,
     description:
       "Luxurious silk pathani with subtle geometric weave and mandarin collar",
-    image: "https://images.unsplash.com/photo-1594938298603-c8148c4b4e51?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
   {
     id: 5n,
@@ -61,7 +67,8 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Shawls,
     description:
       "Rare kani weave shawl with elaborate paisley patterns, takes months to craft",
-    image: "https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
   {
     id: 6n,
@@ -70,70 +77,108 @@ const FALLBACK_PRODUCTS: Product[] = [
     category: Category.Men,
     description:
       "Royal sherwani with gold zari embroidery, perfect for celebrations",
-    image: "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=600",
+    image:
+      "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png",
   },
 ];
 
+const DEFAULT_CONTACT: ContactInfo = {
+  phone: "9906099884",
+  email: "persianThreads@gmail.com",
+  address: "Dal Lake Road, Srinagar, Kashmir",
+};
+
+// Serialize bigint for JSON
+function serializeProducts(products: Product[]): string {
+  return JSON.stringify(
+    products.map((p) => ({
+      ...p,
+      id: p.id.toString(),
+      price: p.price.toString(),
+    })),
+  );
+}
+
+function deserializeProducts(json: string): Product[] {
+  try {
+    const arr = JSON.parse(json);
+    return arr.map((p: Record<string, unknown>) => ({
+      ...p,
+      id: BigInt(p.id as string),
+      price: BigInt(p.price as string),
+    }));
+  } catch {
+    return DEFAULT_PRODUCTS;
+  }
+}
+
+function loadProducts(): Product[] {
+  try {
+    const raw = localStorage.getItem(PRODUCTS_KEY);
+    if (!raw) return DEFAULT_PRODUCTS;
+    const parsed = deserializeProducts(raw);
+    return parsed.length > 0 ? parsed : DEFAULT_PRODUCTS;
+  } catch {
+    return DEFAULT_PRODUCTS;
+  }
+}
+
+function saveProducts(products: Product[]): void {
+  localStorage.setItem(PRODUCTS_KEY, serializeProducts(products));
+}
+
+function loadContact(): ContactInfo {
+  try {
+    const raw = localStorage.getItem(CONTACT_KEY);
+    if (!raw) return DEFAULT_CONTACT;
+    return JSON.parse(raw);
+  } catch {
+    return DEFAULT_CONTACT;
+  }
+}
+
+function saveContact(contact: ContactInfo): void {
+  localStorage.setItem(CONTACT_KEY, JSON.stringify(contact));
+}
+
 export function useProducts() {
-  const { actor, isFetching } = useActor();
   return useQuery<Product[]>({
     queryKey: ["products"],
-    queryFn: async () => {
-      if (!actor) return FALLBACK_PRODUCTS;
-      try {
-        const results = await actor.getAllProducts();
-        if (!results || results.length === 0) return FALLBACK_PRODUCTS;
-        return results as Product[];
-      } catch {
-        return FALLBACK_PRODUCTS;
-      }
-    },
-    enabled: !isFetching,
-    placeholderData: FALLBACK_PRODUCTS,
+    queryFn: loadProducts,
+    staleTime: 0,
   });
 }
 
 export function useProductsByCategory(category: Category | null) {
-  const { actor, isFetching } = useActor();
   return useQuery<Product[]>({
     queryKey: ["products", category],
-    queryFn: async () => {
-      if (!actor || !category) return FALLBACK_PRODUCTS;
-      try {
-        const results = await actor.getProductsByCategory(category);
-        if (!results || results.length === 0)
-          return FALLBACK_PRODUCTS.filter((p) => p.category === category);
-        return results as Product[];
-      } catch {
-        return FALLBACK_PRODUCTS.filter((p) => p.category === category);
-      }
+    queryFn: () => {
+      const all = loadProducts();
+      if (!category) return all;
+      return all.filter((p) => p.category === category);
     },
-    enabled: !isFetching && !!category,
-    placeholderData: FALLBACK_PRODUCTS,
+    enabled: !!category,
+    staleTime: 0,
   });
 }
 
-export function useSubmitContact() {
-  const { actor } = useActor();
-  return useMutation({
-    mutationFn: async ({
-      name,
-      email,
-      message,
-    }: { name: string; email: string; message: string }) => {
-      if (!actor) throw new Error("Not connected");
-      await actor.submitContactForm(name, email, message);
-    },
+export function useContactInfo() {
+  return useQuery<ContactInfo>({
+    queryKey: ["contactInfo"],
+    queryFn: loadContact,
+    staleTime: 0,
   });
 }
 
 export function useAddProduct() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (product: Product) => {
-      if (!actor) throw new Error("Not connected");
-      return actor.addProduct(product);
+      const products = loadProducts();
+      const maxId = products.reduce((max, p) => (p.id > max ? p.id : max), 0n);
+      const newProduct = { ...product, id: maxId + 1n };
+      saveProducts([...products, newProduct]);
+      return newProduct;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -142,15 +187,18 @@ export function useAddProduct() {
 }
 
 export function useUpdateProduct() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       productId,
       product,
     }: { productId: bigint; product: Product }) => {
-      if (!actor) throw new Error("Not connected");
-      return actor.updateProduct(productId, product);
+      const products = loadProducts();
+      const updated = products.map((p) =>
+        p.id === productId ? { ...product, id: productId } : p,
+      );
+      saveProducts(updated);
+      return product;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -159,12 +207,11 @@ export function useUpdateProduct() {
 }
 
 export function useDeleteProduct() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (productId: bigint) => {
-      if (!actor) throw new Error("Not connected");
-      await actor.deleteProduct(productId);
+      const products = loadProducts();
+      saveProducts(products.filter((p) => p.id !== productId));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -172,24 +219,7 @@ export function useDeleteProduct() {
   });
 }
 
-export function useContactInfo() {
-  const { actor, isFetching } = useActor();
-  return useQuery<ContactInfo>({
-    queryKey: ["contactInfo"],
-    queryFn: async () => {
-      if (!actor) return { phone: "", email: "", address: "" };
-      try {
-        return await actor.getContactInfo();
-      } catch {
-        return { phone: "", email: "", address: "" };
-      }
-    },
-    enabled: !isFetching,
-  });
-}
-
 export function useSaveContactInfo() {
-  const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -197,11 +227,26 @@ export function useSaveContactInfo() {
       email,
       address,
     }: { phone: string; email: string; address: string }) => {
-      if (!actor) throw new Error("Not connected");
-      await actor.saveContactInfo(phone, email, address);
+      saveContact({ phone, email, address });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contactInfo"] });
+    },
+  });
+}
+
+export function useSubmitContact() {
+  return useMutation({
+    mutationFn: async ({
+      name,
+      email,
+      message,
+    }: { name: string; email: string; message: string }) => {
+      // Store contact form submissions in localStorage
+      const key = "persian_threads_messages";
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      existing.push({ name, email, message, time: Date.now() });
+      localStorage.setItem(key, JSON.stringify(existing));
     },
   });
 }

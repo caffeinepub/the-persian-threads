@@ -1,20 +1,38 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Toaster } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
   Facebook,
   Heart,
   Instagram,
   Menu,
+  Minus,
+  Plus,
   Search,
   ShoppingCart,
+  Trash2,
   Twitter,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import AdminPanel from "./AdminPanel";
 import { Category } from "./backend";
@@ -31,14 +49,458 @@ const NAV_LINKS = [
 const BRAND_IMAGE =
   "/assets/uploads/img_2373-019d298c-eaa8-7709-bdf4-45a070a141e7-1.png";
 
+interface CartItem {
+  id: bigint;
+  name: string;
+  price: bigint;
+  image: string;
+  quantity: number;
+}
+
 function formatPrice(price: bigint): string {
   return `₹${Number(price).toLocaleString("en-IN")}`;
+}
+
+// ── Category Slideshow ──────────────────────────────────────────────────────
+const CATEGORY_LABELS: Record<string, string> = {
+  Women: "Women's Collection",
+  Men: "Men's Collection",
+  Shawls: "Shawls & Wraps",
+};
+
+function CategorySlideshow({ category }: { category: string }) {
+  const storageKey = `persian_category_images_${category}`;
+  const [images, setImages] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [current, setCurrent] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    function sync() {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        setImages(raw ? JSON.parse(raw) : []);
+        setCurrent(0);
+      } catch {
+        setImages([]);
+      }
+    }
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (images.length <= 1) return;
+    timerRef.current = setInterval(() => {
+      setCurrent((c) => (c + 1) % images.length);
+    }, 4000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [images.length]);
+
+  if (images.length === 0) return null;
+
+  function prev() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setCurrent((c) => (c - 1 + images.length) % images.length);
+  }
+
+  function next() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setCurrent((c) => (c + 1) % images.length);
+  }
+
+  return (
+    <div
+      className="relative w-full overflow-hidden rounded-2xl mb-10 shadow-lg"
+      style={{ aspectRatio: "16/7" }}
+    >
+      <AnimatePresence mode="wait">
+        <motion.img
+          key={current}
+          src={images[current]}
+          alt={`${category} slide ${current + 1}`}
+          className="absolute inset-0 w-full h-full object-cover"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.7 }}
+        />
+      </AnimatePresence>
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+      <div className="absolute bottom-6 left-8 text-white z-10">
+        <p className="text-xs tracking-[0.3em] uppercase text-white/70 mb-1">
+          The Persian Threads
+        </p>
+        <h3 className="font-serif text-2xl md:text-3xl font-bold">
+          {CATEGORY_LABELS[category] ?? category}
+        </h3>
+      </div>
+      {images.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={prev}
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-white/20 hover:bg-white/40 text-white rounded-full p-2 transition-all duration-200 backdrop-blur-sm"
+            aria-label="Previous slide"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            type="button"
+            onClick={next}
+            className="absolute right-4 top-1/2 -translate-y-1/2 z-10 bg-white/20 hover:bg-white/40 text-white rounded-full p-2 transition-all duration-200 backdrop-blur-sm"
+            aria-label="Next slide"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <div className="absolute bottom-4 right-6 flex gap-1.5 z-10">
+            {images.map((img, i) => (
+              <button
+                key={img.slice(-20) + String(i)}
+                type="button"
+                onClick={() => setCurrent(i)}
+                className={`w-2 h-2 rounded-full transition-all duration-200 ${
+                  i === current ? "bg-white scale-125" : "bg-white/50"
+                }`}
+                aria-label={`Go to slide ${i + 1}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Checkout Modal ──────────────────────────────────────────────────────────
+function CheckoutModal({
+  open,
+  onClose,
+  items,
+  subtotal,
+  whatsappPhone,
+  onConfirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  items: CartItem[];
+  subtotal: bigint;
+  whatsappPhone: string;
+  onConfirm: () => void;
+}) {
+  const upiId = `${whatsappPhone}@upi`;
+
+  const waText = encodeURIComponent(
+    `Hello! I'd like to order:\n${items.map((i) => `• ${i.name} (x${i.quantity}) — ${formatPrice(i.price * BigInt(i.quantity))}`).join("\n")}\n\nTotal: ${formatPrice(subtotal)}`,
+  );
+
+  function copyUpi() {
+    navigator.clipboard
+      .writeText(upiId)
+      .then(() => {
+        toast.success(
+          `UPI ID copied! Pay ${formatPrice(subtotal)} to ${upiId}`,
+        );
+      })
+      .catch(() => {
+        toast.error(`Could not copy UPI ID. Please copy manually: ${upiId}`);
+      });
+  }
+
+  function handleWhatsApp() {
+    window.open(`https://wa.me/${whatsappPhone}?text=${waText}`, "_blank");
+    onConfirm();
+    onClose();
+    toast.success("Order placed! We'll confirm on WhatsApp.");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md w-full" data-ocid="checkout.dialog">
+        <DialogHeader>
+          <DialogTitle className="font-serif text-xl">
+            Complete Your Order
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Order Summary */}
+        <div className="mt-2 space-y-3">
+          <p className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+            Order Summary
+          </p>
+          <div className="space-y-2">
+            {items.map((item) => (
+              <div
+                key={String(item.id)}
+                className="flex justify-between items-center text-sm"
+              >
+                <span className="text-foreground">
+                  {item.name}
+                  <span className="text-muted-foreground ml-1">
+                    ×{item.quantity}
+                  </span>
+                </span>
+                <span className="font-semibold text-foreground">
+                  {formatPrice(item.price * BigInt(item.quantity))}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border pt-3 flex justify-between items-center">
+            <span className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+              Grand Total
+            </span>
+            <span className="font-serif text-2xl font-bold text-primary">
+              {formatPrice(subtotal)}
+            </span>
+          </div>
+        </div>
+
+        {/* Payment Options */}
+        <div className="mt-4 space-y-3">
+          <p className="text-xs tracking-widest uppercase text-muted-foreground font-medium">
+            Payment Options
+          </p>
+
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Pay via UPI
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{upiId}</p>
+              </div>
+              <button
+                type="button"
+                onClick={copyUpi}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium tracking-wide px-3 py-2 rounded-full transition-all duration-200"
+                data-ocid="checkout.primary_button"
+              >
+                <Copy size={12} />
+                Copy UPI
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Copy the UPI ID and pay using any UPI app (GPay, PhonePe, Paytm).
+              After payment, confirm your order on WhatsApp.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleWhatsApp}
+            className="w-full bg-[#25D366] hover:bg-[#1fb356] text-white text-center rounded-full py-3 text-sm tracking-widest uppercase font-medium transition-all duration-300"
+            data-ocid="checkout.confirm_button"
+          >
+            📱 Confirm Order on WhatsApp
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full border border-border text-muted-foreground hover:text-foreground hover:border-foreground text-center rounded-full py-2.5 text-xs tracking-widest uppercase font-medium transition-all duration-200"
+            data-ocid="checkout.cancel_button"
+          >
+            Back to Cart
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Cart Drawer ─────────────────────────────────────────────────────────────
+function CartDrawer({
+  open,
+  onClose,
+  items,
+  onRemove,
+  onUpdateQty,
+  onClearCart,
+  whatsappPhone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  items: CartItem[];
+  onRemove: (id: bigint) => void;
+  onUpdateQty: (id: bigint, delta: number) => void;
+  onClearCart: () => void;
+  whatsappPhone: string;
+}) {
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price * BigInt(item.quantity),
+    0n,
+  );
+
+  const waText = encodeURIComponent(
+    `Hello! I'd like to order:\n${items.map((i) => `• ${i.name} (x${i.quantity})`).join("\n")}\n\nTotal: ${formatPrice(subtotal)}`,
+  );
+
+  return (
+    <>
+      <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md flex flex-col p-0"
+          data-ocid="cart.sheet"
+        >
+          <SheetHeader className="px-6 py-5 border-b border-border">
+            <div className="flex items-center justify-between">
+              <SheetTitle className="font-serif text-xl flex items-center gap-2">
+                <ShoppingCart size={20} className="text-primary" />
+                Your Cart
+              </SheetTitle>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                data-ocid="cart.close_button"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </SheetHeader>
+
+          {items.length === 0 ? (
+            <div
+              className="flex-1 flex flex-col items-center justify-center text-center px-8"
+              data-ocid="cart.empty_state"
+            >
+              <div className="text-5xl mb-4">🧵</div>
+              <p className="font-serif text-lg text-foreground mb-2">
+                Your cart is empty
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Add some beautiful pieces to get started.
+              </p>
+            </div>
+          ) : (
+            <>
+              <ScrollArea className="flex-1 px-6 py-4">
+                <div className="space-y-4" data-ocid="cart.list">
+                  {items.map((item, i) => (
+                    <div
+                      key={String(item.id)}
+                      className="flex gap-4 items-start"
+                      data-ocid={`cart.item.${i + 1}`}
+                    >
+                      <img
+                        src={item.image || BRAND_IMAGE}
+                        alt={item.name}
+                        className="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-border"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-serif font-semibold text-sm text-foreground truncate">
+                          {item.name}
+                        </p>
+                        {/* Unit price */}
+                        <p className="text-muted-foreground text-xs mt-0.5">
+                          {formatPrice(item.price)} each
+                        </p>
+                        {/* Line total */}
+                        <p className="text-primary font-bold text-sm mt-0.5">
+                          {formatPrice(item.price * BigInt(item.quantity))}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => onUpdateQty(item.id, -1)}
+                            className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:border-primary hover:text-primary transition-colors text-muted-foreground"
+                            data-ocid={`cart.item.${i + 1}`}
+                          >
+                            <Minus size={12} />
+                          </button>
+                          <span className="text-sm font-medium w-5 text-center">
+                            {item.quantity}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onUpdateQty(item.id, 1)}
+                            className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:border-primary hover:text-primary transition-colors text-muted-foreground"
+                            data-ocid={`cart.item.${i + 1}`}
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(item.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        aria-label="Remove"
+                        data-ocid={`cart.delete_button.${i + 1}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+
+              <div className="px-6 py-5 border-t border-border space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground text-xs font-medium uppercase tracking-widest">
+                    Subtotal
+                  </span>
+                  <span className="font-serif text-xl font-bold text-foreground">
+                    {formatPrice(subtotal)}
+                  </span>
+                </div>
+                {/* Buy Now — opens checkout modal */}
+                <button
+                  type="button"
+                  onClick={() => setCheckoutOpen(true)}
+                  className="block w-full bg-amber-500 hover:bg-amber-600 text-white text-center rounded-full py-3 text-sm tracking-widest uppercase font-semibold transition-all duration-300 shadow-sm"
+                  data-ocid="cart.primary_button"
+                >
+                  🛍️ Buy Now
+                </button>
+                {/* WhatsApp quick order */}
+                <a
+                  href={`https://wa.me/${whatsappPhone}?text=${waText}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-ocid="cart.secondary_button"
+                  className="block w-full bg-[#25D366] hover:bg-[#1fb356] text-white text-center rounded-full py-3 text-sm tracking-widest uppercase font-medium transition-all duration-300"
+                >
+                  📱 Order via WhatsApp
+                </a>
+                <p className="text-xs text-muted-foreground text-center">
+                  We'll confirm your order on WhatsApp
+                </p>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <CheckoutModal
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        items={items}
+        subtotal={subtotal}
+        whatsappPhone={whatsappPhone}
+        onConfirm={onClearCart}
+      />
+    </>
+  );
 }
 
 function StoreFront() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState<Category | null>(null);
-  const [cartCount, setCartCount] = useState(0);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
   const [contactForm, setContactForm] = useState({
     name: "",
     email: "",
@@ -56,6 +518,41 @@ function StoreFront() {
     ? allProducts.filter((p) => p.category === activeFilter)
     : allProducts;
 
+  const cartCount = cartItems.reduce((sum, i) => sum + i.quantity, 0);
+
+  function addToCart(product: {
+    id: bigint;
+    name: string;
+    price: bigint;
+    image: string;
+  }) {
+    setCartItems((prev) => {
+      const existing = prev.find((i) => i.id === product.id);
+      if (existing) {
+        return prev.map((i) =>
+          i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i,
+        );
+      }
+      return [...prev, { ...product, quantity: 1 }];
+    });
+  }
+
+  function removeFromCart(id: bigint) {
+    setCartItems((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function updateQty(id: bigint, delta: number) {
+    setCartItems((prev) => {
+      return prev
+        .map((i) => (i.id === id ? { ...i, quantity: i.quantity + delta } : i))
+        .filter((i) => i.quantity > 0);
+    });
+  }
+
+  function clearCart() {
+    setCartItems([]);
+  }
+
   function scrollTo(ref: React.RefObject<HTMLElement | null>) {
     ref.current?.scrollIntoView({ behavior: "smooth" });
   }
@@ -72,8 +569,48 @@ function StoreFront() {
     }
   }
 
+  const storedContact = (() => {
+    try {
+      const raw = localStorage.getItem("persian_threads_contact");
+      return raw ? JSON.parse(raw) : { phone: "9906099884" };
+    } catch {
+      return { phone: "9906099884" };
+    }
+  })();
+  const whatsappPhone = (storedContact.phone || "9906099884").replace(
+    /\D/g,
+    "",
+  );
+
+  const activeCategoryKey =
+    activeFilter === Category.Women
+      ? "Women"
+      : activeFilter === Category.Men
+        ? "Men"
+        : activeFilter === Category.Shawls
+          ? "Shawls"
+          : null;
+
+  const FILTERS = [
+    { label: "All", value: null },
+    { label: "Women", value: Category.Women },
+    { label: "Men", value: Category.Men },
+    { label: "Shawls", value: Category.Shawls },
+  ];
+
   return (
     <div className="min-h-screen bg-secondary">
+      {/* ── CART DRAWER ── */}
+      <CartDrawer
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
+        items={cartItems}
+        onRemove={removeFromCart}
+        onUpdateQty={updateQty}
+        onClearCart={clearCart}
+        whatsappPhone={whatsappPhone}
+      />
+
       {/* ── NAVBAR ── */}
       <header
         className="sticky top-0 z-50 bg-white border-b border-border shadow-xs"
@@ -81,7 +618,6 @@ function StoreFront() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
-            {/* Brand */}
             <a
               href="/"
               className="font-serif text-xl md:text-2xl font-bold text-primary tracking-wider"
@@ -90,7 +626,6 @@ function StoreFront() {
               THE PERSIAN THREADS 🧵
             </a>
 
-            {/* Desktop nav */}
             <nav
               className="hidden lg:flex items-center gap-8"
               data-ocid="navbar.panel"
@@ -117,7 +652,6 @@ function StoreFront() {
               ))}
             </nav>
 
-            {/* Icons */}
             <div className="hidden lg:flex items-center gap-4 text-foreground">
               <button
                 type="button"
@@ -138,6 +672,7 @@ function StoreFront() {
                 className="hover:text-primary transition-colors p-1 relative"
                 aria-label="Cart"
                 data-ocid="navbar.button"
+                onClick={() => setCartOpen(true)}
               >
                 <ShoppingCart size={18} />
                 {cartCount > 0 && (
@@ -148,20 +683,34 @@ function StoreFront() {
               </button>
             </div>
 
-            {/* Mobile menu toggle */}
-            <button
-              type="button"
-              className="lg:hidden p-2 text-foreground"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label="Menu"
-              data-ocid="navbar.toggle"
-            >
-              {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
-            </button>
+            <div className="flex items-center gap-3 lg:hidden">
+              <button
+                type="button"
+                className="hover:text-primary transition-colors p-1 relative text-foreground"
+                aria-label="Cart"
+                onClick={() => setCartOpen(true)}
+                data-ocid="navbar.button"
+              >
+                <ShoppingCart size={20} />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                    {cartCount}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="p-2 text-foreground"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Menu"
+                data-ocid="navbar.toggle"
+              >
+                {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Mobile menu */}
         <AnimatePresence>
           {mobileMenuOpen && (
             <motion.div
@@ -206,9 +755,7 @@ function StoreFront() {
       >
         <div
           className="absolute inset-0 bg-center bg-cover"
-          style={{
-            backgroundImage: `url('${BRAND_IMAGE}')`,
-          }}
+          style={{ backgroundImage: `url('${BRAND_IMAGE}')` }}
         />
         <div className="absolute inset-0 bg-black/45" />
 
@@ -225,30 +772,31 @@ function StoreFront() {
             Elegance Woven in Every Thread
           </h1>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Button
-              onClick={() => scrollTo(collectionRef)}
-              className="bg-primary hover:bg-primary/80 text-primary-foreground rounded-full px-10 py-3 text-sm tracking-widest uppercase font-medium transition-all duration-300 hover:shadow-lg"
-              data-ocid="hero.primary_button"
-            >
-              Shop Collection
-            </Button>
             <button
               type="button"
               onClick={() => scrollTo(collectionRef)}
-              className="text-white border border-white/60 rounded-full px-8 py-3 text-sm tracking-widest uppercase hover:bg-white/10 transition-all duration-200 flex items-center gap-2"
+              className="bg-white text-foreground hover:bg-white/90 rounded-full px-10 py-3.5 text-xs tracking-widest uppercase font-semibold transition-all duration-300 shadow-lg"
+              data-ocid="hero.primary_button"
+            >
+              Shop the Collection
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollTo(contactRef)}
+              className="border border-white text-white hover:bg-white/15 rounded-full px-10 py-3.5 text-xs tracking-widest uppercase font-medium transition-all duration-300"
               data-ocid="hero.secondary_button"
             >
-              Explore <ChevronDown size={14} />
+              Custom Orders
             </button>
           </div>
         </motion.div>
       </section>
 
-      {/* ── FEATURED COLLECTION ── */}
+      {/* ── COLLECTION ── */}
       <section
         ref={collectionRef}
         id="collection"
-        className="py-20 px-4 bg-white"
+        className="py-20 px-4 sm:px-6 lg:px-8"
       >
         <div className="max-w-7xl mx-auto">
           <motion.div
@@ -259,24 +807,15 @@ function StoreFront() {
             className="text-center mb-12"
           >
             <p className="text-primary tracking-[0.25em] uppercase text-xs font-medium mb-3">
-              Handcrafted with Love
+              Handcrafted Excellence
             </p>
-            <h2 className="font-serif text-3xl md:text-5xl font-bold text-foreground mb-4">
-              Featured Collection
+            <h2 className="font-serif text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Our Collection
             </h2>
             <div className="w-16 h-0.5 bg-primary mx-auto mb-8" />
 
-            {/* Category filters */}
-            <div
-              className="flex flex-wrap justify-center gap-3 mb-2"
-              data-ocid="collection.panel"
-            >
-              {[
-                { label: "All", value: null },
-                { label: "Women", value: Category.Women },
-                { label: "Men", value: Category.Men },
-                { label: "Shawls", value: Category.Shawls },
-              ].map((f) => (
+            <div className="flex flex-wrap justify-center gap-2">
+              {FILTERS.map((f) => (
                 <button
                   key={f.label}
                   type="button"
@@ -294,7 +833,20 @@ function StoreFront() {
             </div>
           </motion.div>
 
-          {/* Product grid */}
+          <AnimatePresence mode="wait">
+            {activeCategoryKey && (
+              <motion.div
+                key={activeCategoryKey}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.4 }}
+              >
+                <CategorySlideshow category={activeCategoryKey} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8"
             data-ocid="collection.list"
@@ -345,7 +897,12 @@ function StoreFront() {
                         className="bg-primary hover:bg-primary/80 text-primary-foreground rounded-full px-5 text-xs tracking-wide uppercase transition-all duration-200"
                         data-ocid={`collection.item.${i + 1}`}
                         onClick={() => {
-                          setCartCount((c) => c + 1);
+                          addToCart({
+                            id: product.id,
+                            name: product.name,
+                            price: product.price,
+                            image: product.image,
+                          });
                           toast.success(`${product.name} added to cart!`);
                         }}
                       >
@@ -375,9 +932,7 @@ function StoreFront() {
       <section className="relative overflow-hidden" style={{ minHeight: 480 }}>
         <div
           className="absolute inset-0 bg-center bg-cover"
-          style={{
-            backgroundImage: `url('${BRAND_IMAGE}')`,
-          }}
+          style={{ backgroundImage: `url('${BRAND_IMAGE}')` }}
         />
         <div className="absolute inset-0 bg-black/55" />
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 flex justify-end">
@@ -548,25 +1103,23 @@ function StoreFront() {
       </section>
 
       {/* ── FOOTER ── */}
-      <footer className="bg-footer text-footer-foreground py-16 px-4">
+      <footer className="bg-foreground py-16 px-4">
         <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-10 mb-12">
-            {/* About */}
-            <div className="col-span-2 md:col-span-1">
-              <h4 className="font-serif text-lg font-bold text-white mb-4">
-                The Persian Threads 🧵
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+            <div className="md:col-span-1">
+              <h4 className="font-serif text-xl font-bold text-white mb-4">
+                THE PERSIAN THREADS 🧵
               </h4>
-              <p className="text-white/60 text-sm leading-relaxed">
-                Handcrafted Kashmiri and Persian-inspired clothing. Every thread
-                carries a legacy of artisanship and cultural pride.
+              <p className="text-white/60 text-sm leading-relaxed mb-6">
+                Kashmiri artisanship meets Persian elegance. Every piece tells a
+                story.
               </p>
-              <div className="flex gap-4 mt-6">
+              <div className="flex gap-4">
                 <a
                   href="https://instagram.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Instagram"
-                  className="text-white/50 hover:text-white transition-colors"
+                  className="text-white/40 hover:text-white transition-colors"
                   data-ocid="footer.link"
                 >
                   <Instagram size={18} />
@@ -575,8 +1128,7 @@ function StoreFront() {
                   href="https://facebook.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Facebook"
-                  className="text-white/50 hover:text-white transition-colors"
+                  className="text-white/40 hover:text-white transition-colors"
                   data-ocid="footer.link"
                 >
                   <Facebook size={18} />
@@ -585,8 +1137,7 @@ function StoreFront() {
                   href="https://twitter.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Twitter"
-                  className="text-white/50 hover:text-white transition-colors"
+                  className="text-white/40 hover:text-white transition-colors"
                   data-ocid="footer.link"
                 >
                   <Twitter size={18} />
@@ -594,7 +1145,6 @@ function StoreFront() {
               </div>
             </div>
 
-            {/* Shop */}
             <div>
               <h5 className="text-xs tracking-widest uppercase text-white/40 font-medium mb-4">
                 Shop
@@ -616,7 +1166,6 @@ function StoreFront() {
               </ul>
             </div>
 
-            {/* Customer Service */}
             <div>
               <h5 className="text-xs tracking-widest uppercase text-white/40 font-medium mb-4">
                 Customer Service
@@ -642,7 +1191,6 @@ function StoreFront() {
               </ul>
             </div>
 
-            {/* Contact */}
             <div>
               <h5 className="text-xs tracking-widest uppercase text-white/40 font-medium mb-4">
                 Contact
@@ -674,6 +1222,17 @@ function StoreFront() {
             <p>
               © {new Date().getFullYear()} The Persian Threads 🧵 · Crafted with
               Heritage &amp; Luxury
+            </p>
+            <p>
+              Built with love using{" "}
+              <a
+                href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-white/70 transition-colors underline underline-offset-2"
+              >
+                caffeine.ai
+              </a>
             </p>
           </div>
         </div>
